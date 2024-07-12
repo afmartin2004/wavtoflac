@@ -32,13 +32,13 @@ def copy_file(input_file_path, output_file_path):
         print(f'Failed to copy {input_file_path} to {output_file_path}: {e}')
 
 def copy_directory(source, destination):
-    source_jasco_dir = os.path.join(source, 'jasco')
-    destination_jasco_dir = os.path.join(destination, 'jasco')
+    source_XXX_dir = os.path.join(source, 'XXX') # XXX is the distinction for updating the files; this would be your first folder in the directory so it knows to look for it.
+    destination_XXX_dir = os.path.join(destination, 'XXX') # These aren't neccessary (if process is interrupted this will update paused files) So I would reccomend removing this if that's not a concern.
 
     try:
-        os.makedirs(destination_jasco_dir, exist_ok=True)
+        os.makedirs(destination_XXX_dir, exist_ok=True)
     except OSError as e:
-        print(f"Failed to create directory {destination_jasco_dir}: {e}")
+        print(f"Failed to create directory {destination_XXX_dir}: {e}")
         return
 
     # Function to recursively copy files while maintaining directory structure
@@ -79,8 +79,8 @@ def copy_directory(source, destination):
                 else:
                     print(f'Skipping {output_file_path} (already exists)')
 
-    # Copy files from source 'jasco' directory to destination 'jasco' directory
-    copy_files_recursively(source_jasco_dir, destination_jasco_dir)
+    # Copy files from source 'XXX' directory to destination 'XXX' directory
+    copy_files_recursively(source_XXX_dir, destination_XXX_dir)
 
 def file_checksum(file_path):
     # Placeholder for generating a checksum or hash of a file
