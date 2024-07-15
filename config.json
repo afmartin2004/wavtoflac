@@ -1,4 +1,5 @@
 {
     "source_dir": "E:\\",
-    "destination_dir": "S:\\"
+    "destination_dir": "S:\\",
+    "csv_file_path": "copy_failures.csv"
 }
