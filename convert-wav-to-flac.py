@@ -1,91 +1,131 @@
 import os
 import subprocess
 import shutil
+import csv
+from datetime import datetime
+import ctypes
+import json
 
-source_dir = 'E:\\'
-destination_dir = 'S:\\'
+def load_config(filename):
+    with open(filename, 'r') as f:
+        config = json.load(f)
+    return config
+
+config = load_config('config.json')
+source_dir = config.get('source_dir', '')
+destination_dir = config.get('destination_dir', '')
+
+def log_failure(file_name, timestamp, user, drive, directory):
+    drive_name = get_drive_name(drive)
+    csv_file = os.path.join(os.path.dirname(__file__), 'copy_failures.csv')
+
+    with open(csv_file, mode='a', newline='', encoding='utf-8') as file:
+        writer = csv.writer(file)
+        writer.writerow([file_name, timestamp, user, drive_name, directory])
+
+def get_drive_name(drive):
+    try:
+        
+        if os.name == 'nt':
+            drive = os.path.splitdrive(drive)[0] + '\\'
+            volume_name = ctypes.create_unicode_buffer(1024)
+            ctypes.windll.kernel32.GetVolumeInformationW(
+                ctypes.c_wchar_p(drive),
+                volume_name,
+                ctypes.sizeof(volume_name),
+                None,
+                None,
+                None,
+                None,
+                0
+            )
+            return volume_name.value
+    except Exception as e:
+        print(f"Error retrieving drive name for {drive}: {e}")
+    return drive
+
+def get_wav_channels(input_file_path):
+    try:
+        ffprobe_cmd = [
+            'ffprobe',
+            '-v', 'error',
+            '-select_streams', 'a:0',
+            '-show_entries', 'stream=channels',
+            '-of', 'default=noprint_wrappers=1:nokey=1',
+            input_file_path
+        ]
+        result = subprocess.run(ffprobe_cmd, capture_output=True, text=True)
+        return int(result.stdout.strip())
+    except subprocess.CalledProcessError as e:
+        print(f'Failed to get channel count for {input_file_path}: {e}')
+    return 0
 
 def convert_wav_to_flac(input_file_path, output_file_path):
     try:
+        channels = get_wav_channels(input_file_path)
+
         ffmpeg_cmd = [
             'ffmpeg', 
             '-i', input_file_path, 
             '-c:a', 'flac', 
-            #'-ac', '2',  # Set number of output channels (e.g., 2 for stereo)
-            '-compression_level', '6',  # Adjust compression level if needed
+            '-compression_level', '5',
+            '-ac', str(channels),  
             output_file_path
         ]
         subprocess.run(ffmpeg_cmd, check=True, capture_output=True, text=True)
-        print(f'Converted {input_file_path} to FLAC')
+        print(f'Converted {input_file_path} to FLAC with {channels} channels')
     except subprocess.CalledProcessError as e:
         print(f'Failed to convert {input_file_path} to FLAC: {e.stderr}')
 
 def copy_file(input_file_path, output_file_path):
     try:
-        if not os.path.exists(output_file_path):  # Only copy if the file doesn't exist in destination
-            with open(input_file_path, 'rb') as src, open(output_file_path, 'wb') as dst:
-                shutil.copyfileobj(src, dst)
-            print(f'Copied {input_file_path} to {output_file_path}')
-        else:
-            print(f'Skipping {output_file_path} (already exists)')
+        with open(input_file_path, 'rb') as src, open(output_file_path, 'wb') as dst:
+            shutil.copyfileobj(src, dst)
+        print(f'Copied {input_file_path} to {output_file_path}')
     except IOError as e:
         print(f'Failed to copy {input_file_path} to {output_file_path}: {e}')
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        user = os.getlogin()
+        drive, directory = os.path.splitdrive(input_file_path)
+        log_failure(os.path.basename(input_file_path), timestamp, user, drive, directory)
 
 def copy_directory(source, destination):
-    source_XXX_dir = os.path.join(source, 'XXX') # XXX is the distinction for updating the files; this would be your first folder in the directory so it knows to look for it.
-    destination_XXX_dir = os.path.join(destination, 'XXX') # These aren't neccessary (if process is interrupted this will update paused files) So I would reccomend removing this if that's not a concern.
-
     try:
-        os.makedirs(destination_XXX_dir, exist_ok=True)
+        os.makedirs(destination, exist_ok=True)
     except OSError as e:
-        print(f"Failed to create directory {destination_XXX_dir}: {e}")
+        print(f"Failed to create directory {destination}: {e}")
         return
 
-    # Function to recursively copy files while maintaining directory structure
-    def copy_files_recursively(source_dir, destination_dir):
-        for root, dirs, files in os.walk(source_dir):
-            for dir_name in dirs:
-                source_sub_dir = os.path.join(root, dir_name)
-                relative_sub_dir = os.path.relpath(source_sub_dir, source_dir)
-                destination_sub_dir = os.path.join(destination_dir, relative_sub_dir)
-                os.makedirs(destination_sub_dir, exist_ok=True)
+    for root, dirs, files in os.walk(source):
+        for dir_name in dirs:
+            source_dir_path = os.path.join(root, dir_name)
+            relative_dir_path = os.path.relpath(source_dir_path, source)
+            destination_dir_path = os.path.join(destination, relative_dir_path)
+            os.makedirs(destination_dir_path, exist_ok=True)
 
-            for file in files:
-                input_file_path = os.path.join(root, file)
-                relative_file_path = os.path.relpath(input_file_path, source_dir)
-                output_file_path = os.path.join(destination_dir, relative_file_path)
+        for file in files:
+            input_file_path = os.path.join(root, file)
+            relative_file_path = os.path.relpath(input_file_path, source)
+            output_file_path = os.path.join(destination, relative_file_path)
 
-                # Remove file extension for comparison
-                file_name, file_ext = os.path.splitext(file)
-
-                # Check if the file (without extension) exists in destination
-                if not os.path.exists(os.path.join(destination_dir, relative_file_path)):
-                    if file_ext.lower() == '.wav':
-                        # Check if there's a corresponding .flac file in destination
-                        if os.path.exists(os.path.join(destination_dir, relative_file_path.replace('.wav', '.flac'))):
-                            print(f'Skipping {input_file_path} (FLAC version already exists)')
-                        else:
-                            # Convert .wav to .flac and copy
-                            try:
-                                convert_wav_to_flac(input_file_path, os.path.splitext(output_file_path)[0] + '.flac')
-                            except Exception as e:
-                                print(f'Failed to convert {input_file_path} to FLAC: {e}')
-                    else:
-                        # Directly copy other file types
-                        try:
-                            copy_file(input_file_path, output_file_path)
-                        except IOError as e:
-                            print(f'Failed to copy {input_file_path} to {output_file_path}: {e}')
-                else:
-                    print(f'Skipping {output_file_path} (already exists)')
-
-    # Copy files from source 'XXX' directory to destination 'XXX' directory
-    copy_files_recursively(source_XXX_dir, destination_XXX_dir)
-
-def file_checksum(file_path):
-    # Placeholder for generating a checksum or hash of a file
-    # Replace this with your actual implementation if needed
-    return None
+            if file.lower().endswith('.wav'):
+                try:
+                    convert_wav_to_flac(input_file_path, os.path.splitext(output_file_path)[0] + '.flac')
+                except subprocess.CalledProcessError as e:
+                    print(f'Failed to convert {input_file_path} to FLAC: {e}')
+                    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    user = os.getlogin()
+                    drive, directory = os.path.splitdrive(input_file_path)
+                    log_failure(os.path.basename(input_file_path), timestamp, user, drive, directory)
+            else:
+                try:
+                    copy_file(input_file_path, output_file_path)
+                except IOError as e:
+                    print(f'Failed to copy {input_file_path} to {output_file_path}: {e}')
+                    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    user = os.getlogin()
+                    drive, directory = os.path.splitdrive(input_file_path)
+                    log_failure(os.path.basename(input_file_path), timestamp, user, drive, directory)
 
 try:
     copy_directory(source_dir, destination_dir)
