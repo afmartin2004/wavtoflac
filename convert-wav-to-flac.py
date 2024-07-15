@@ -7,25 +7,23 @@ import ctypes
 import json
 
 def load_config(filename):
+    """Load configuration from JSON file."""
     with open(filename, 'r') as f:
         config = json.load(f)
     return config
 
-config = load_config('config.json')
-source_dir = config.get('source_dir', '')
-destination_dir = config.get('destination_dir', '')
-
-def log_failure(file_name, timestamp, user, drive, directory):
+def log_failure(file_name, timestamp, user, drive, directory, csv_file):
+    """Log failure details to a CSV file."""
     drive_name = get_drive_name(drive)
-    csv_file = os.path.join(os.path.dirname(__file__), 'copy_failures.csv')
+    csv_file = os.path.join(os.path.dirname(__file__), csv_file)
 
     with open(csv_file, mode='a', newline='', encoding='utf-8') as file:
         writer = csv.writer(file)
         writer.writerow([file_name, timestamp, user, drive_name, directory])
 
 def get_drive_name(drive):
+    """Retrieve drive name using Windows API."""
     try:
-        
         if os.name == 'nt':
             drive = os.path.splitdrive(drive)[0] + '\\'
             volume_name = ctypes.create_unicode_buffer(1024)
@@ -45,6 +43,7 @@ def get_drive_name(drive):
     return drive
 
 def get_wav_channels(input_file_path):
+    """Get number of channels in a WAV file."""
     try:
         ffprobe_cmd = [
             'ffprobe',
@@ -61,6 +60,7 @@ def get_wav_channels(input_file_path):
     return 0
 
 def convert_wav_to_flac(input_file_path, output_file_path):
+    """Convert WAV file to FLAC."""
     try:
         channels = get_wav_channels(input_file_path)
 
@@ -68,8 +68,8 @@ def convert_wav_to_flac(input_file_path, output_file_path):
             'ffmpeg', 
             '-i', input_file_path, 
             '-c:a', 'flac', 
-            '-compression_level', '5',
-            '-ac', str(channels),  
+            '-compression_level', '5',  # Adjust compression level if needed
+            '-ac', str(channels),  # Set number of output channels dynamically
             output_file_path
         ]
         subprocess.run(ffmpeg_cmd, check=True, capture_output=True, text=True)
@@ -77,7 +77,8 @@ def convert_wav_to_flac(input_file_path, output_file_path):
     except subprocess.CalledProcessError as e:
         print(f'Failed to convert {input_file_path} to FLAC: {e.stderr}')
 
-def copy_file(input_file_path, output_file_path):
+def copy_file(input_file_path, output_file_path, csv_file):
+    """Copy file from source to destination."""
     try:
         with open(input_file_path, 'rb') as src, open(output_file_path, 'wb') as dst:
             shutil.copyfileobj(src, dst)
@@ -87,9 +88,10 @@ def copy_file(input_file_path, output_file_path):
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         user = os.getlogin()
         drive, directory = os.path.splitdrive(input_file_path)
-        log_failure(os.path.basename(input_file_path), timestamp, user, drive, directory)
+        log_failure(os.path.basename(input_file_path), timestamp, user, drive, directory, csv_file)
 
-def copy_directory(source, destination):
+def copy_directory(source, destination, csv_file):
+    """Recursively copy directory from source to destination."""
     try:
         os.makedirs(destination, exist_ok=True)
     except OSError as e:
@@ -116,21 +118,38 @@ def copy_directory(source, destination):
                     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                     user = os.getlogin()
                     drive, directory = os.path.splitdrive(input_file_path)
-                    log_failure(os.path.basename(input_file_path), timestamp, user, drive, directory)
+                    log_failure(os.path.basename(input_file_path), timestamp, user, drive, directory, csv_file)
             else:
                 try:
-                    copy_file(input_file_path, output_file_path)
+                    copy_file(input_file_path, output_file_path, csv_file)
                 except IOError as e:
                     print(f'Failed to copy {input_file_path} to {output_file_path}: {e}')
                     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                     user = os.getlogin()
                     drive, directory = os.path.splitdrive(input_file_path)
-                    log_failure(os.path.basename(input_file_path), timestamp, user, drive, directory)
+                    log_failure(os.path.basename(input_file_path), timestamp, user, drive, directory, csv_file)
 
-try:
-    copy_directory(source_dir, destination_dir)
-    print(f'Successfully copied directory {source_dir} to {destination_dir}')
-except PermissionError as e:
-    print(f"Permission error: {e}")
-except Exception as e:
-    print(f"An error occurred: {e}")
+def main():
+    try:
+        # Load configuration from JSON file
+        with open('config.json', 'r') as f:
+            config = json.load(f)
+
+        # Extract source, destination, and csv_file_path from config
+        source_dir = config.get('source_dir', '')
+        destination_dir = config.get('destination_dir', '')
+        csv_file = config.get('csv_file_path', 'copy_failures.csv')
+
+        # Copy directory
+        copy_directory(source_dir, destination_dir, csv_file)
+        print(f'Successfully copied directory {source_dir} to {destination_dir}')
+
+    except FileNotFoundError:
+        print("Error: Configuration file 'config.json' not found.")
+    except PermissionError as e:
+        print(f"Permission error: {e}")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+if __name__ == "__main__":
+    main()
