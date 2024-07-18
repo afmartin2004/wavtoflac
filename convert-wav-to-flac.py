@@ -1,3 +1,5 @@
+"@author: Andrew Martin, 2024"
+
 import os
 import subprocess
 import shutil
@@ -98,17 +100,27 @@ def copy_directory(source, destination, csv_file):
         print(f"Failed to create directory {destination}: {e}")
         return
 
+    drive_name = get_drive_name(source)
+    drive_folder = os.path.join(destination, drive_name)
+    try:
+        os.makedirs(drive_folder, exist_ok=True)
+    except OSError as e:
+        print(f"Failed to create drive folder {drive_folder}: {e}")
+        return
+
     for root, dirs, files in os.walk(source):
+        # Exclude system directories like "System Volume Information"
+        dirs[:] = [d for d in dirs if not d.startswith('.')]
         for dir_name in dirs:
             source_dir_path = os.path.join(root, dir_name)
             relative_dir_path = os.path.relpath(source_dir_path, source)
-            destination_dir_path = os.path.join(destination, relative_dir_path)
+            destination_dir_path = os.path.join(drive_folder, relative_dir_path)
             os.makedirs(destination_dir_path, exist_ok=True)
 
         for file in files:
             input_file_path = os.path.join(root, file)
             relative_file_path = os.path.relpath(input_file_path, source)
-            output_file_path = os.path.join(destination, relative_file_path)
+            output_file_path = os.path.join(drive_folder, relative_file_path)
 
             if file.lower().endswith('.wav'):
                 try:
