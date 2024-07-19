@@ -92,26 +92,55 @@ def copy_file(input_file_path, output_file_path, csv_file):
         drive, directory = os.path.splitdrive(input_file_path)
         log_failure(os.path.basename(input_file_path), timestamp, user, drive, directory, csv_file)
 
-def copy_directory(source, destination, csv_file):
-    """Recursively copy directory from source to destination."""
-    try:
-        os.makedirs(destination, exist_ok=True)
-    except OSError as e:
-        print(f"Failed to create directory {destination}: {e}")
-        return
-
-    drive_name = get_drive_name(source)
-    drive_folder = os.path.join(destination, drive_name)
-    try:
-        os.makedirs(drive_folder, exist_ok=True)
-    except OSError as e:
-        print(f"Failed to create drive folder {drive_folder}: {e}")
-        return
-
+def compare_and_copy(source, drive_folder, csv_file):
+    """Compare and copy missing files from source to destination."""
     for root, dirs, files in os.walk(source):
-        # Exclude system directories like "System Volume Information"
-        dirs[:] = [d for d in dirs if not d.startswith('.')]
-        dirs[:] = [d for d in dirs if not d.lower() == 'system volume information']
+        # Exclude system directories
+        dirs[:] = [d for d in dirs if not d.startswith('.') and d.lower() != 'system volume information']
+        for dir_name in dirs:
+            source_dir_path = os.path.join(root, dir_name)
+            relative_dir_path = os.path.relpath(source_dir_path, source)
+            destination_dir_path = os.path.join(drive_folder, relative_dir_path)
+            os.makedirs(destination_dir_path, exist_ok=True)
+
+        for file in files:
+            input_file_path = os.path.join(root, file)
+            relative_file_path = os.path.relpath(input_file_path, source)
+            output_file_path = os.path.join(drive_folder, relative_file_path)
+
+            if file.lower().endswith('.wav'):
+                try:
+                    # Check if corresponding FLAC file exists in destination
+                    flac_file_path = os.path.splitext(output_file_path)[0] + '.flac'
+                    if not os.path.exists(flac_file_path):
+                        convert_wav_to_flac(input_file_path, flac_file_path)
+                    else:
+                        print(f'Skipping conversion of {input_file_path}, FLAC file already exists.')
+                except subprocess.CalledProcessError as e:
+                    print(f'Failed to convert {input_file_path} to FLAC: {e}')
+                    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    user = os.getlogin()
+                    drive, directory = os.path.splitdrive(input_file_path)
+                    log_failure(os.path.basename(input_file_path), timestamp, user, drive, directory, csv_file)
+            else:
+                try:
+                    # Copy file if it doesn't exist in destination
+                    if not os.path.exists(output_file_path):
+                        copy_file(input_file_path, output_file_path, csv_file)
+                    else:
+                        print(f'Skipping copy of {input_file_path}, file already exists in destination.')
+                except IOError as e:
+                    print(f'Failed to copy {input_file_path} to {output_file_path}: {e}')
+                    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    user = os.getlogin()
+                    drive, directory = os.path.splitdrive(input_file_path)
+                    log_failure(os.path.basename(input_file_path), timestamp, user, drive, directory, csv_file)
+
+def regular_copy(source, drive_folder, csv_file):
+    """Regular copy without detailed comparison."""
+    for root, dirs, files in os.walk(source):
+        # Exclude system directories
+        dirs[:] = [d for d in dirs if not d.startswith('.') and d.lower() != 'system volume information']
         for dir_name in dirs:
             source_dir_path = os.path.join(root, dir_name)
             relative_dir_path = os.path.relpath(source_dir_path, source)
@@ -141,6 +170,33 @@ def copy_directory(source, destination, csv_file):
                     user = os.getlogin()
                     drive, directory = os.path.splitdrive(input_file_path)
                     log_failure(os.path.basename(input_file_path), timestamp, user, drive, directory, csv_file)
+
+def copy_directory(source, destination, csv_file):
+    """Recursively copy directory from source to destination."""
+    try:
+        os.makedirs(destination, exist_ok=True)
+    except OSError as e:
+        print(f"Failed to create directory {destination}: {e}")
+        return
+
+    drive_name = get_drive_name(source)
+    drive_folder = os.path.join(destination, drive_name)
+    try:
+        os.makedirs(drive_folder, exist_ok=True)
+    except OSError as e:
+        print(f"Failed to create drive folder {drive_folder}: {e}")
+        return
+
+    # Check if the first folder in destination matches source drive name
+    first_folder_in_source = os.path.basename(os.path.normpath(source))
+    first_folder_in_destination = os.listdir(destination)[0] if os.path.exists(destination) else None
+
+    if first_folder_in_destination and first_folder_in_destination == first_folder_in_source:
+        # Perform a detailed comparison and copying process
+        compare_and_copy(source, drive_folder, csv_file)
+    else:
+        # Regular copy without detailed comparison
+        regular_copy(source, drive_folder, csv_file)
 
 def main():
     try:
