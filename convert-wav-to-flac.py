@@ -111,6 +111,7 @@ def copy_directory(source, destination, csv_file):
     for root, dirs, files in os.walk(source):
         # Exclude system directories like "System Volume Information"
         dirs[:] = [d for d in dirs if not d.startswith('.')]
+        dirs[:] = [d for d in dirs if not d.lower() == 'system volume information']
         for dir_name in dirs:
             source_dir_path = os.path.join(root, dir_name)
             relative_dir_path = os.path.relpath(source_dir_path, source)
