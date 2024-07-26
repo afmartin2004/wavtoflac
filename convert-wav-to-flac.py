@@ -8,14 +8,12 @@ from datetime import datetime
 import ctypes
 import json
 
-def load_config(filename):
-    """Load configuration from JSON file."""
+def load_config(filename): # Get source/directory and csv file from config.json
     with open(filename, 'r') as f:
         config = json.load(f)
     return config
 
-def log_failure(file_name, timestamp, user, drive, directory, csv_file):
-    """Log failure details to a CSV file."""
+def log_failure(file_name, timestamp, user, drive, directory, csv_file): # Writes copy failures to a csv file
     drive_name = get_drive_name(drive)
     csv_file = os.path.join(os.path.dirname(__file__), csv_file)
 
@@ -23,8 +21,7 @@ def log_failure(file_name, timestamp, user, drive, directory, csv_file):
         writer = csv.writer(file)
         writer.writerow([file_name, timestamp, user, drive_name, directory])
 
-def get_drive_name(drive):
-    """Retrieve drive name using Windows API."""
+def get_drive_name(drive): # Gets the name of the source directory
     try:
         if os.name == 'nt':
             drive = os.path.splitdrive(drive)[0] + '\\'
@@ -44,8 +41,7 @@ def get_drive_name(drive):
         print(f"Error retrieving drive name for {drive}: {e}")
     return drive
 
-def get_wav_channels(input_file_path):
-    """Get number of channels in a WAV file."""
+def get_wav_channels(input_file_path): # Detects the number of channels in the source WAV file
     try:
         ffprobe_cmd = [
             'ffprobe',
@@ -61,8 +57,7 @@ def get_wav_channels(input_file_path):
         print(f'Failed to get channel count for {input_file_path}: {e}')
     return 0
 
-def convert_wav_to_flac(input_file_path, output_file_path):
-    """Convert WAV file to FLAC."""
+def convert_wav_to_flac(input_file_path, output_file_path): # Convert WAV files to FLAC
     try:
         channels = get_wav_channels(input_file_path)
 
@@ -70,17 +65,16 @@ def convert_wav_to_flac(input_file_path, output_file_path):
             'ffmpeg', 
             '-i', input_file_path, 
             '-c:a', 'flac', 
-            '-compression_level', '5',  # Adjust compression level if needed
-            '-ac', str(channels),  # Set number of output channels dynamically
-            output_file_path
+            '-compression_level', '5',  # Adjust compression level, 5 should be good for the most part
+            '-ac', str(channels),  # This allows the code to make the same number of compressed output channels as
+            output_file_path       # input channels, you can make this a set number if you want but I wouldn't reccomend
         ]
         subprocess.run(ffmpeg_cmd, check=True, capture_output=True, text=True)
         print(f'Converted {input_file_path} to FLAC with {channels} channels')
     except subprocess.CalledProcessError as e:
         print(f'Failed to convert {input_file_path} to FLAC: {e.stderr}')
 
-def copy_file(input_file_path, output_file_path, csv_file):
-    """Copy file from source to destination."""
+def copy_file(input_file_path, output_file_path, csv_file): # Copy from source to destination
     try:
         with open(input_file_path, 'rb') as src, open(output_file_path, 'wb') as dst:
             shutil.copyfileobj(src, dst)
@@ -92,10 +86,8 @@ def copy_file(input_file_path, output_file_path, csv_file):
         drive, directory = os.path.splitdrive(input_file_path)
         log_failure(os.path.basename(input_file_path), timestamp, user, drive, directory, csv_file)
 
-def compare_and_copy(source, drive_folder, csv_file):
-    """Compare and copy missing files from source to destination."""
-    for root, dirs, files in os.walk(source):
-        # Exclude system directories
+def compare_and_copy(source, drive_folder, csv_file): # In the case your run gets cancelled mid copy, this will search
+    for root, dirs, files in os.walk(source):         # through copied files and begin the process from where you left off
         dirs[:] = [d for d in dirs if not d.startswith('.') and d.lower() != 'system volume information']
         for dir_name in dirs:
             source_dir_path = os.path.join(root, dir_name)
@@ -108,9 +100,8 @@ def compare_and_copy(source, drive_folder, csv_file):
             relative_file_path = os.path.relpath(input_file_path, source)
             output_file_path = os.path.join(drive_folder, relative_file_path)
 
-            if file.lower().endswith('.wav'):
+            if file.lower().endswith('.wav'): # Checks if there is a WAV with a corressponding FLAC file in the destination
                 try:
-                    # Check if corresponding FLAC file exists in destination
                     flac_file_path = os.path.splitext(output_file_path)[0] + '.flac'
                     if not os.path.exists(flac_file_path):
                         convert_wav_to_flac(input_file_path, flac_file_path)
@@ -124,8 +115,7 @@ def compare_and_copy(source, drive_folder, csv_file):
                     log_failure(os.path.basename(input_file_path), timestamp, user, drive, directory, csv_file)
             else:
                 try:
-                    # Copy file if it doesn't exist in destination
-                    if not os.path.exists(output_file_path):
+                    if not os.path.exists(output_file_path): # If file is missing, copies to destination
                         copy_file(input_file_path, output_file_path, csv_file)
                     else:
                         print(f'Skipping copy of {input_file_path}, file already exists in destination.')
@@ -136,10 +126,8 @@ def compare_and_copy(source, drive_folder, csv_file):
                     drive, directory = os.path.splitdrive(input_file_path)
                     log_failure(os.path.basename(input_file_path), timestamp, user, drive, directory, csv_file)
 
-def regular_copy(source, drive_folder, csv_file):
-    """Regular copy without detailed comparison."""
+def regular_copy(source, drive_folder, csv_file): # Regular copy code if the process is intiated for the first time
     for root, dirs, files in os.walk(source):
-        # Exclude system directories
         dirs[:] = [d for d in dirs if not d.startswith('.') and d.lower() != 'system volume information']
         for dir_name in dirs:
             source_dir_path = os.path.join(root, dir_name)
@@ -171,8 +159,7 @@ def regular_copy(source, drive_folder, csv_file):
                     drive, directory = os.path.splitdrive(input_file_path)
                     log_failure(os.path.basename(input_file_path), timestamp, user, drive, directory, csv_file)
 
-def copy_directory(source, destination, csv_file):
-    """Recursively copy directory from source to destination."""
+def copy_directory(source, destination, csv_file): # Copies the source to destination directory
     try:
         os.makedirs(destination, exist_ok=True)
     except OSError as e:
@@ -187,29 +174,24 @@ def copy_directory(source, destination, csv_file):
         print(f"Failed to create drive folder {drive_folder}: {e}")
         return
 
-    # Check if the first folder in destination matches source drive name
-    first_folder_in_source = os.path.basename(os.path.normpath(source))
+    # Check if the first folder in destination matches source drive name; if it does then the update script runs
+    first_folder_in_source = os.path.basename(os.path.normpath(source)) # if not the regular copy script runs
     first_folder_in_destination = os.listdir(destination)[0] if os.path.exists(destination) else None
 
     if first_folder_in_destination and first_folder_in_destination == first_folder_in_source:
-        # Perform a detailed comparison and copying process
         compare_and_copy(source, drive_folder, csv_file)
     else:
-        # Regular copy without detailed comparison
         regular_copy(source, drive_folder, csv_file)
 
-def main():
+def main(): # Reads config.json, gets the source, destination and csv, then copies
     try:
-        # Load configuration from JSON file
         with open('config.json', 'r') as f:
             config = json.load(f)
 
-        # Extract source, destination, and csv_file_path from config
         source_dir = config.get('source_dir', '')
         destination_dir = config.get('destination_dir', '')
         csv_file = config.get('csv_file_path', 'copy_failures.csv')
 
-        # Copy directory
         copy_directory(source_dir, destination_dir, csv_file)
         print(f'Successfully copied directory {source_dir} to {destination_dir}')
 
